@@ -207,3 +207,38 @@ object IncrementalCsvSink extends Logging {
     case ColumnType.String => fr0"text".validNel
   }
 }
+
+object Thingz {
+
+  import cats.evidence._
+  import skolems._
+
+  sealed trait Key[F[_], A] extends Product with Serializable {
+    type Repr
+    val value: F[A]
+    val reify: A === Repr
+  }
+
+  type ActualKey[A] = Key[Id, A]
+  type TypedKey[T, A] = Key[Const[T, ?], A]
+
+  final case class Offset(columnName: String, value: Exists[ActualKey])
+
+  sealed trait Change[+I, +O] extends Product with Serializable
+  sealed trait NeedsAName[+I, +O] extends Change[I, O]
+
+  final case class Delete[I](ids: NonEmptyList[I]) extends NeedsAName[I, Nothing]
+  final case class Insert(data: Chunk[Byte]) extends NeedsAName[Nothing, Nothing]
+  final case class Commit[O](offset: O) extends NeedsAName[Nothing, O]
+
+  final case class UpsertArgs[F[_], T, A](
+      dstPath: ResourcePath,
+      correlationColumn: DestinationColumn[TypedKey[T, A]],
+      columns: NonEmptyList[DestinationColumn[T]],
+      input: Stream[F, NeedsAName[A, Offset]])
+
+  //final case class UpsertSink[F[_], T](
+  //  renderConfig: RenderConfig,
+  //  consume: Forall[λ[α => UpsertArgs[F, T, α] => Stream[F, Offset]]])
+  //  extends ResultSink[F, T]
+}
