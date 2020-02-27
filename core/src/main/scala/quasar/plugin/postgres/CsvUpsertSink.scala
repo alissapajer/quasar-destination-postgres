@@ -18,12 +18,12 @@ package quasar.plugin.postgres
 
 import slamdata.Predef._
 
-import quasar.connector.{MonadResourceErr, Offset}
+import quasar.connector.{DataEvent, MonadResourceErr, Offset}
 import quasar.connector.destination.ResultSink.UpsertSink
 
 import cats.Applicative
 
-import fs2.Stream
+import fs2.{Pipe, Stream}
 
 import org.slf4s.Logging
 
@@ -50,6 +50,8 @@ object CsvUpsertSink extends Logging {
       : Stream[F, Offset] = {
 
     val table: F[Table] = tableFromPath[F](args.path)
+
+    val pipe: Pipe[F, DataEvent.Primitive[A, Offset], Unit] = ???
 
     ???
   }
