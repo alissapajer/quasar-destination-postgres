@@ -18,6 +18,7 @@ package quasar.plugin.postgres
 
 import slamdata.Predef._
 
+import quasar.api.ColumnType
 import quasar.connector.{DataEvent, MonadResourceErr, Offset}
 import quasar.connector.destination.ResultSink.UpsertSink
 
@@ -45,11 +46,11 @@ object CsvUpsertSink extends Logging {
 
   // TODO index the table at creation time by correlation id column
 
-  def apply[F[_]: Monad: MonadResourceErr, T]
+  def apply[F[_]: Monad: MonadResourceErr, T <: ColumnType]
       : Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] =
     Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]](run)
 
-  def run[F[_]: Monad: MonadResourceErr, T, I](args: UpsertSink.Args[F, T, I])
+  def run[F[_]: Monad: MonadResourceErr, T <: ColumnType, I](args: UpsertSink.Args[F, T, I])
       : Stream[F, Offset] = {
 
     val table: F[Table] = tableFromPath[F](args.path)
