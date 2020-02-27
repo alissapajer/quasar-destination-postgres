@@ -71,8 +71,6 @@ object CsvUpsertSink extends Logging {
         case e @ DataEvent.Commit(_) => handleCommit(e).map(Some(_): Option[Offset])
       }
 
-    eventHandler(args.input)
-
-    ???
+    eventHandler(args.input).unNone
   }
 }
