@@ -43,6 +43,8 @@ object CsvUpsertSink extends Logging {
   // create Stream[F, Byte] and columns are passed to `copyToTable`
   // then we `createTable` with this information
 
+  // TODO index the table at creation time by correlation id column
+
   def apply[F[_]: Monad: MonadResourceErr, T]
       : Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] =
     Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]](run)
@@ -67,7 +69,7 @@ object CsvUpsertSink extends Logging {
     val eventHandler: Pipe[F, DataEvent.Primitive[I, Offset], Option[Offset]] =
       _ evalMap {
         case e @ DataEvent.Create(_) => handleCreate(e) >> (None: Option[Offset]).pure[F]
-        case e @ DataEvent.Delete(_) => ??? //handleDelete(e) >> (None: Option[Offset]).pure[F]
+        case e @ DataEvent.Delete(_) => ??? // handleDelete(e) >> (None: Option[Offset]).pure[F]
         case e @ DataEvent.Commit(_) => handleCommit(e).map(Some(_): Option[Offset])
       }
 
