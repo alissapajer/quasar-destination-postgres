@@ -41,6 +41,7 @@ import quasar.connector._
 
 import scala.concurrent.duration.MILLISECONDS
 
+// TODO rename to CsvCreateSink
 object CsvSink extends Logging {
   def apply[F[_]: Effect: MonadResourceErr](
       xa: Transactor[F],
@@ -53,14 +54,7 @@ object CsvSink extends Logging {
 
     val AE = ApplicativeError[F, Throwable]
 
-    val table =
-      tableFromPath(dst) match {
-        case Some(t) =>
-          t.pure[F]
-
-        case None =>
-          MonadResourceErr[F].raiseError(ResourceError.notAResource(dst))
-      }
+    val table: F[Table] = tableFromPath[F](dst)
 
     Stream.force(for {
       tbl <- table

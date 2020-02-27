@@ -18,8 +18,10 @@ package quasar.plugin.postgres
 
 import slamdata.Predef._
 
-import quasar.connector.Offset
+import quasar.connector.{MonadResourceErr, Offset}
 import quasar.connector.destination.ResultSink.UpsertSink
+
+import cats.Applicative
 
 import fs2.Stream
 
@@ -27,7 +29,28 @@ import org.slf4s.Logging
 
 import skolems.Forall
 
+// final case class Args[F[_], T, A](
+//     path: ResourcePath,
+//     columns: NonEmptyList[Column[T]],
+//     correlationId: Column[TypedKey[T, A]],
+//     input: Stream[F, DataEvent.Primitive[A, Offset]])
+// }
+
 object CsvUpsertSink extends Logging {
 
-  def back[F[_], T]: Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] = ???
+  // ResourcePath is used to extract the table name with `tableFromPath`
+  // create Stream[F, Byte] and columns are passed to `copyToTable`
+  // then we `createTable` with this information
+
+  def apply[F[_]: Applicative: MonadResourceErr, T]
+      : Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] =
+    Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]](run)
+
+  def run[F[_]: Applicative: MonadResourceErr, T, A](args: UpsertSink.Args[F, T, A])
+      : Stream[F, Offset] = {
+
+    val table: F[Table] = tableFromPath[F](args.path)
+
+    ???
+  }
 }

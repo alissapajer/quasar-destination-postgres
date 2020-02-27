@@ -18,7 +18,9 @@ package quasar.plugin
 
 import slamdata.Predef._
 
+import cats.Applicative
 import cats.effect.Sync
+import cats.implicits._
 
 import java.net.URI
 import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder, SignStyle}
@@ -26,6 +28,7 @@ import java.time.temporal.ChronoField
 
 import quasar.api.resource._
 import quasar.connector.render.RenderConfig
+import quasar.connector.{MonadResourceErr, ResourceError}
 
 import scala.util.Random
 
@@ -85,8 +88,17 @@ package object postgres {
     Sync[F].delay(Random.alphanumeric.take(size).mkString)
 
   /** Attempts to extract a table name from the given path. */
-  def tableFromPath(p: ResourcePath): Option[Table] =
-    Some(p) collect {
+  def tableFromPath[F[_]: Applicative: MonadResourceErr](path: ResourcePath)
+      : F[Table] = {
+    val back = Some(path) collect {
       case table /: ResourcePath.Root => table
     }
+
+    back match {
+      case Some(t) =>
+        t.pure[F]
+      case None =>
+        MonadResourceErr[F].raiseError(ResourceError.notAResource(path))
+    }
+  }
 }
