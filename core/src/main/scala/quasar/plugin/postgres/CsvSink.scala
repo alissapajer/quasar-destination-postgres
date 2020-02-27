@@ -21,7 +21,7 @@ import slamdata.Predef._
 import cats._
 import cats.arrow.FunctionK
 import cats.data._
-import cats.effect.{Effect, ExitCase, LiftIO, Sync, Timer}
+import cats.effect.{Effect, LiftIO, Timer}
 import cats.effect.concurrent.Ref
 import cats.implicits._
 
@@ -29,11 +29,10 @@ import doobie._
 import doobie.implicits._
 import doobie.postgres._
 import doobie.postgres.implicits._
-import doobie.util.log.{ExecFailure, ProcessingFailure, Success}
 
-import fs2.{Chunk, Pipe, Stream}
+import fs2.Stream
 
-import org.slf4s.{Logger, Logging}
+import org.slf4s.Logging
 
 import quasar.api.{Column, ColumnType}
 import quasar.api.resource._
@@ -76,7 +75,7 @@ object CsvSink extends Logging {
           .evalTap(recordChunks[F](log)(totalBytes))
           // TODO: Is there a better way?
           .translate(Effect.toIOK[F] andThen LiftIO.liftK[CopyManagerIO])
-          .through(copyToTable(tbl, columns))
+          .through(copyToTable(log)(tbl, columns))
 
       colSpecs <- columns.traverse(columnSpec).fold(
         invalid => AE.raiseError(new ColumnTypesNotSupported(invalid)),
@@ -109,94 +108,5 @@ object CsvSink extends Logging {
 
 
     } yield copy ++ Stream.eval(logEnd))
-  }
-
-  ////
-
-  private def logHandler(log: Logger): LogHandler =
-    LogHandler {
-      case Success(q, _, e, p) =>
-        log.debug(s"SUCCESS: `$q` in ${(e + p).toMillis}ms (${e.toMillis} ms exec, ${p.toMillis} ms proc)")
-
-      case ExecFailure(q, _, e, t) =>
-        log.debug(s"EXECUTION_FAILURE: `$q` after ${e.toMillis} ms, detail: ${t.getMessage}", t)
-
-      case ProcessingFailure(q, _, e, p, t) =>
-        log.debug(s"PROCESSING_FAILURE: `$q` after ${(e + p).toMillis} ms (${e.toMillis} ms exec, ${p.toMillis} ms proc (failed)), detail: ${t.getMessage}", t)
-    }
-
-  private def error[F[_]: Sync](log: Logger)(msg: => String, cause: => Throwable): F[Unit] =
-    Sync[F].delay(log.error(msg, cause))
-
-  private def debug[F[_]: Sync](log: Logger)(msg: => String): F[Unit] =
-    Sync[F].delay(log.debug(msg))
-
-  private def trace[F[_]: Sync](log: Logger)(msg: => String): F[Unit] =
-    Sync[F].delay(log.trace(msg))
-
-  private def logChunkSize[F[_]: Sync](log: Logger)(c: Chunk[Byte]): F[Unit] =
-    trace[F](log)(s"Sending ${c.size} bytes")
-
-  private def recordChunks[F[_]: Sync](log: Logger)(total: Ref[F, Long])(c: Chunk[Byte]): F[Unit] =
-    total.update(_ + c.size) >> logChunkSize[F](log)(c)
-
-  private def copyToTable(
-      table: Table,
-      columns: NonEmptyList[Column[ColumnType.Scalar]])
-      : Pipe[CopyManagerIO, Chunk[Byte], Unit] = {
-    val cols =
-      columns
-        .map(c => hygienicIdent(c.name))
-        .intercalate(", ")
-
-    val copyQuery =
-      s"COPY ${hygienicIdent(table)} ($cols) FROM STDIN WITH (FORMAT csv, HEADER FALSE, ENCODING 'UTF8')"
-
-    val logStart = debug[CopyManagerIO](log)(s"BEGIN COPY: `${copyQuery}`")
-
-    val startCopy =
-      Stream.bracketCase(PFCM.copyIn(copyQuery) <* logStart) { (pgci, exitCase) =>
-        PFCM.embed(pgci, exitCase match {
-          case ExitCase.Completed => PFCI.endCopy.void
-          case _ => PFCI.isActive.ifM(PFCI.cancelCopy, PFCI.unit)
-        })
-      }
-
-    in => startCopy flatMap { pgci =>
-      in.map(_.toBytes) evalMap { bs =>
-        PFCM.embed(pgci, PFCI.writeToCopy(bs.values, bs.offset, bs.length))
-      }
-    }
-  }
-
-  private def createTable(log: Logger)(table: Table, colSpecs: NonEmptyList[Fragment]): ConnectionIO[Int] = {
-    val preamble =
-      fr"CREATE TABLE" ++ Fragment.const(hygienicIdent(table))
-
-    (preamble ++ Fragments.parentheses(colSpecs.intercalate(fr",")))
-      .updateWithLogHandler(logHandler(log))
-      .run
-  }
-
-  private def dropTableIfExists(log: Logger)(table: Table): ConnectionIO[Int] =
-    (fr"DROP TABLE IF EXISTS" ++ Fragment.const(hygienicIdent(table)))
-      .updateWithLogHandler(logHandler(log))
-      .run
-
-  private def columnSpec(c: Column[ColumnType.Scalar]): ValidatedNel[ColumnType.Scalar, Fragment] =
-    pgColumnType(c.tpe).map(Fragment.const(hygienicIdent(c.name)) ++ _)
-
-  private val pgColumnType: ColumnType.Scalar => ValidatedNel[ColumnType.Scalar, Fragment] = {
-    case ColumnType.Null => fr0"smallint".validNel
-    case ColumnType.Boolean => fr0"boolean".validNel
-    case ColumnType.LocalTime => fr0"time".validNel
-    case ColumnType.OffsetTime => fr0"time with timezone".validNel
-    case ColumnType.LocalDate => fr0"date".validNel
-    case t @ ColumnType.OffsetDate => t.invalidNel
-    case ColumnType.LocalDateTime => fr0"timestamp".validNel
-    case ColumnType.OffsetDateTime => fr0"timestamp with time zone".validNel
-    case ColumnType.Interval => fr0"interval".validNel
-    case ColumnType.Number => fr0"numeric".validNel
-    case ColumnType.String => fr0"text".validNel
   }
 }
