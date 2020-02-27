@@ -21,7 +21,8 @@ import slamdata.Predef._
 import quasar.connector.{DataEvent, MonadResourceErr, Offset}
 import quasar.connector.destination.ResultSink.UpsertSink
 
-import cats.Applicative
+import cats.Monad
+import cats.implicits._
 
 import fs2.{Pipe, Stream}
 
@@ -42,16 +43,35 @@ object CsvUpsertSink extends Logging {
   // create Stream[F, Byte] and columns are passed to `copyToTable`
   // then we `createTable` with this information
 
-  def apply[F[_]: Applicative: MonadResourceErr, T]
+  def apply[F[_]: Monad: MonadResourceErr, T]
       : Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] =
     Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]](run)
 
-  def run[F[_]: Applicative: MonadResourceErr, T, A](args: UpsertSink.Args[F, T, A])
+  def run[F[_]: Monad: MonadResourceErr, T, I](args: UpsertSink.Args[F, T, I])
       : Stream[F, Offset] = {
 
     val table: F[Table] = tableFromPath[F](args.path)
 
-    val pipe: Pipe[F, DataEvent.Primitive[A, Offset], Unit] = ???
+    // FIXME
+    def handleCreate(create: DataEvent.Create): F[Unit] =
+      ().pure[F]
+
+    // FIXME
+    def handleDelete(delete: DataEvent.Delete[I]): F[Unit] =
+      ().pure[F]
+
+    // FIXME
+    def handleCommit(commit: DataEvent.Commit[Offset]): F[Offset] =
+      commit.offset.pure[F]
+
+    val eventHandler: Pipe[F, DataEvent.Primitive[I, Offset], Option[Offset]] =
+      _ evalMap {
+        case e @ DataEvent.Create(_) => handleCreate(e) >> (None: Option[Offset]).pure[F]
+        case e @ DataEvent.Delete(_) => ??? //handleDelete(e) >> (None: Option[Offset]).pure[F]
+        case e @ DataEvent.Commit(_) => handleCommit(e).map(Some(_): Option[Offset])
+      }
+
+    eventHandler(args.input)
 
     ???
   }
