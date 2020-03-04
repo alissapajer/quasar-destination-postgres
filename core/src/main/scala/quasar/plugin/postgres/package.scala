@@ -142,6 +142,12 @@ package object postgres {
   def recordChunks[F[_]: Sync](log: Logger)(total: Ref[F, Long])(c: Chunk[Byte]): F[Unit] =
     total.update(_ + c.size) >> logChunkSize[F](log)(c)
 
+  def copyToTable2(
+      log: Logger)(
+      table: Table,
+      columns: NonEmptyList[Column[ColumnType.Scalar]])
+      : CopyManagerIO[Chunk[Byte]] => CopyManagerIO[Unit] = ???
+
   def copyToTable(
       log: Logger)(
       table: Table,

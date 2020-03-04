@@ -18,13 +18,19 @@ package quasar.plugin.postgres
 
 import slamdata.Predef._
 
-import quasar.api.ColumnType
+import quasar.api.{Column, ColumnType}
 import quasar.connector.{DataEvent, MonadResourceErr, Offset}
 import quasar.connector.destination.ResultSink.UpsertSink
 
-import cats.Monad
+import scala.concurrent.duration.MILLISECONDS
+
+import cats.ApplicativeError
 import cats.data.NonEmptyList
+import cats.effect.{Effect, Timer}
+import cats.effect.concurrent.Ref
 import cats.implicits._
+
+import doobie.Transactor
 
 import fs2.{Chunk, Pipe, Stream}
 
@@ -50,18 +56,51 @@ object CsvUpsertSink extends Logging {
   // TODO index the table at creation time by correlation id column
   // TODO don't replace the table if it exists
 
-  def apply[F[_]: Monad: MonadResourceErr, T <: ColumnType]
-      : Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]] =
-    Forall[λ[α => UpsertSink.Args[F, T, α] => Stream[F, Offset]]](run)
+  def apply[F[_]: Effect: MonadResourceErr](xa: Transactor[F])(implicit timer: Timer[F])
+      : Forall[λ[α => UpsertSink.Args[F, ColumnType.Scalar, α] => Stream[F, Offset]]] =
+    Forall[λ[α => UpsertSink.Args[F, ColumnType.Scalar, α] => Stream[F, Offset]]](run(xa))
 
-  def run[F[_]: Monad: MonadResourceErr, T <: ColumnType, I](args: UpsertSink.Args[F, T, I])
+  def run[F[_]: Effect: MonadResourceErr, I](
+      xa: Transactor[F])(
+      args: UpsertSink.Args[F, ColumnType.Scalar, I])(
+      implicit timer: Timer[F])
       : Stream[F, Offset] = {
+
+    val AE = ApplicativeError[F, Throwable]
+
+    // TODO use updated Args (Append or Replace)
+    val append: Boolean = ???
 
     val table: F[Table] = tableFromPath[F](args.path)
 
+    // TODO use updated Args.columns
+    val columns: NonEmptyList[Column[ColumnType.Scalar]] =
+      args.correlationId.map(_.value.getConst) :: args.columns
+
     // FIXME
     def handleCreate(records: Chunk[Byte]): F[Unit] =
-      ().pure[F]
+      if (append) { // append
+        ().pure[F]
+      } else { // replace
+        for {
+          tbl <- table
+          _ <- debug[F](log)(s"Replacing '${tbl}' with schema ${columns.show}")
+
+          // Telemetry
+          totalBytes <- Ref[F].of(0L)
+          startAt <- timer.clock.monotonic(MILLISECONDS)
+
+          _ <- recordChunks(log)(totalBytes)(records)
+
+          colSpecs <- columns.traverse(columnSpec).fold(
+            invalid => AE.raiseError(new ColumnTypesNotSupported(invalid)),
+            _.pure[F])
+
+          //_ = dropTableIfExists(log)(tbl) >> createTable(log)(tbl, colSpecs)
+
+          //_ <- copyToTable(log)(tbl, columns)
+        } yield () // then transact and log end
+      }
 
     // FIXME
     def handleDelete(recordIds: NonEmptyList[I]): F[Unit] =
