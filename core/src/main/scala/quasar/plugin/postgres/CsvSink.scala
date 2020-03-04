@@ -90,11 +90,11 @@ object CsvSink extends Logging {
             dropTableIfExists(log)(tbl) >> createTable(log)(tbl, colSpecs)
         }
 
-      copy0 =
+      copy0 = // Stream[ConnectionIO, Unit]
         Stream.eval(ensureTable).void ++
           doCopy.translate(λ[FunctionK[CopyManagerIO, ConnectionIO]](PHC.pgGetCopyAPI(_)))
 
-      copy = copy0.transact(xa) handleErrorWith { t =>
+      copy = copy0.transact(xa) handleErrorWith { t => // Stream[F, Unit]
         Stream.eval(
           error[F](log)(s"COPY to '${tbl}' produced unexpected error: ${t.getMessage}", t) >>
             AE.raiseError(t))

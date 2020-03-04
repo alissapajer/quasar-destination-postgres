@@ -55,6 +55,7 @@ object CsvUpsertSink extends Logging {
 
   // TODO index the table at creation time by correlation id column
   // TODO don't replace the table if it exists
+  // TODO begin transaction at the very beginning and end at the very end
 
   def apply[F[_]: Effect: MonadResourceErr](xa: Transactor[F])(implicit timer: Timer[F])
       : Forall[λ[α => UpsertSink.Args[F, ColumnType.Scalar, α] => Stream[F, Offset]]] =
@@ -106,7 +107,7 @@ object CsvUpsertSink extends Logging {
     def handleDelete(recordIds: NonEmptyList[I]): F[Unit] =
       ().pure[F]
 
-    // FIXME
+    // FIXME end transaction; begin transaction;
     def handleCommit(offset: Offset): F[Offset] =
       offset.pure[F]
 
