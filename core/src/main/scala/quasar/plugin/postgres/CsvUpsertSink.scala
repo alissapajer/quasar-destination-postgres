@@ -57,7 +57,9 @@ object CsvUpsertSink extends Logging {
   // TODO don't replace the table if it exists
   // TODO begin transaction at the very beginning and end at the very end
 
-  def apply[F[_]: Effect: MonadResourceErr](xa: Transactor[F])(implicit timer: Timer[F])
+  def apply[F[_]: Effect: MonadResourceErr](
+      xa: Transactor[F])(
+      implicit timer: Timer[F])
       : Forall[λ[α => UpsertSink.Args[F, ColumnType.Scalar, α] => Stream[F, Offset]]] =
     Forall[λ[α => UpsertSink.Args[F, ColumnType.Scalar, α] => Stream[F, Offset]]](run(xa))
 
@@ -110,6 +112,18 @@ object CsvUpsertSink extends Logging {
     // FIXME end transaction; begin transaction;
     def handleCommit(offset: Offset): F[Offset] =
       offset.pure[F]
+
+    // val default = Strategy(setAutoCommit(false), commit, rollback, unit)
+    // val ours = Strategy(setAutoCommit(false), unit, rollback, unit)
+    //
+    // we don't want to commit on completion because `after` is on ConnectionIO end
+    // and we want to run multiple ConnectionIO before committing
+    // but, does this even work? can you close a ConnectionIO without comitting and
+    // preserve the uncommitted stuff? I don't think so
+    // BUT we will compile the Stream into a single ConnectionIO
+    // BUT if we run transact on the stream first we get Stream[F, IO]
+    // are we currently closing and reopening the connection for each chunk
+    // does a ConnectionIO control the actual connection to the db?
 
     val eventHandler: Pipe[F, DataEvent.Primitive[I, Offset], Option[Offset]] =
       _ evalMap {
